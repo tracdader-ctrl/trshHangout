@@ -191,21 +191,13 @@ client.on("messageCreate", async message => {
 
     // Listen for !ticketpanel command
     if (message.content.toLowerCase() === "!ticketpanel") {
-        // Check if the user has the "CommandPerm" role
-        if (!message.member.roles.cache.some(role => role.name === "CommandPerm")) {
-            return message.reply({
-                content: "❌ You do not have permission to use this command.",
-                ephemeral: true
-            });
-        }
-
         // Send a message with embed to open a ticket
-        const ticketPanelEmbed = new EmbedBuilder()
-            .setColor(COLOR_WHITE)
-            .setTitle("Purchase")  // Updated title
-            .setDescription("Click the button below to open a purchase ticket:")  // Updated description
-            .setFooter({ text: "trshHangout" })  // Updated footer
-            .setTimestamp();
+const ticketPanelEmbed = new EmbedBuilder()
+    .setColor(COLOR_WHITE)
+    .setTitle("Purchase")  // Updated title
+    .setDescription("Click the button below to open a purchase ticket:")  // Updated description
+    .setFooter({ text: "trshHangout" })  // Updated footer
+    .setTimestamp();
 
         const ticketPanelMessage = await message.channel.send({
             embeds: [ticketPanelEmbed],
@@ -222,58 +214,95 @@ client.on("messageCreate", async message => {
         // Don't delete the message, keep it forever
     }
 
-    // **!trshhangoutmessage Command**
-    if (message.content.toLowerCase() === "!trshhangoutmessage") {
-        // Check if the user has the "CommandPerm" role
-        if (!message.member.roles.cache.some(role => role.name === "CommandPerm")) {
-            return message.reply({
-                content: "❌ You do not have permission to use this command.",
-                ephemeral: true
+    // Existing ticket flow code (you can leave it as is)
+    if (message.channel.name?.startsWith("ticket-")) {
+        const stepData = ticketSteps.get(message.channel.id);
+        if (!stepData || stepData.finished || stepData.userId !== message.author.id) return;
+
+        const typingAllowed = stepData.step && !["payment", "confirm_order", "other_game_select"].includes(stepData.step);
+        if (!typingAllowed) {
+            await message.delete().catch(() => {});
+            return;
+        }
+
+        await message.delete().catch(() => {});
+        await deleteLastQuestion(message.channel, stepData);
+
+        const content = message.content.trim();
+        let nextText;
+
+        if (stepData.flow === "game") {
+            if (stepData.step === "game_name") {
+                stepData.data.game = content;
+                stepData.step = "item";
+                nextText = `What would you like to purchase in **${content}**?`;
+            } else if (stepData.step === "item") {
+                stepData.data.item = content;
+                stepData.step = "quantity";
+                nextText = "How much would you like to purchase?";
+            } else if (stepData.step === "quantity") {
+                stepData.data.quantity = content;
+                stepData.step = "username";
+                nextText = "Enter your Roblox username.";
+            } else if (stepData.step === "username") {
+                stepData.data.username = content;
+                stepData.step = "payment";
+                const msg = await message.channel.send({
+                    embeds: [new EmbedBuilder().setTitle("Select payment method.\nPlease note, PayPal shipping fees are not covered and may vary by country\n(Payment will not be requested directly)").setColor(COLOR_WHITE)],
+                    components: [buildPaymentSelectMenu()]
+                });
+                stepData.lastQuestion = msg.id;
+                return;
+            }
+        }
+
+        if (stepData.flow === "robux") {
+            if (stepData.step === "quantity") {
+                stepData.data.quantity = content;
+                stepData.step = "gamepass";
+                nextText = "Please provide your gamepass link (Make sure the gamepass is set to the amount of robux you want to purchase) **Rblx standard fee rate = 30%**";
+            } else if (stepData.step === "gamepass") {
+                if (!content.startsWith("https://www.roblox.com")) {
+                    nextText = "❌ Invalid link. Please provide a valid Roblox gamepass link starting with **https://www.roblox.com**";
+                } else {
+                    stepData.data.game = "Roblox";
+                    stepData.data.item = "Robux";
+                    stepData.data.gamepass = content;  // Store the valid gamepass link here
+                    stepData.step = "payment";
+                    const msg = await message.channel.send({
+                        embeds: [new EmbedBuilder().setTitle("Select payment method.\nPlease note, PayPal shipping fees are not covered and may vary by country\n(Payment will not be requested directly)").setColor(COLOR_WHITE)],
+                        components: [buildPaymentSelectMenu()]
+                    });
+
+                    stepData.lastQuestion = msg.id;
+                    return;
+                }
+            }
+        }
+
+        if (stepData.flow === "other") {
+            if (stepData.step === "item") {
+                stepData.data.item = content;
+                stepData.step = "quantity";
+                nextText = "How much would you like to buy?";
+            } else if (stepData.step === "quantity") {
+                stepData.data.quantity = content;
+                stepData.step = "payment";
+                const msg = await message.channel.send({
+                    embeds: [new EmbedBuilder().setTitle("Select payment method.\nPlease note, PayPal shipping fees are not covered and may vary by country\n(Payment will not be requested directly)").setColor(COLOR_WHITE)],
+                    components: [buildPaymentSelectMenu()]
+                });
+                stepData.lastQuestion = msg.id;
+                return;
+            }
+        }
+
+        if (nextText) {
+            const msg = await message.channel.send({
+                embeds: [new EmbedBuilder().setColor(COLOR_WHITE).setDescription(nextText)]
             });
+            stepData.lastQuestion = msg.id;
         }
-
-        // Ask the user for the message
-        await message.reply({
-            content: "What do you want the message to be?",
-            ephemeral: true
-        });
-
-        // Collect the response (message content)
-        const filter = response => response.author.id === message.author.id;
-        const collectedMessage = await message.channel.awaitMessages({ filter, max: 1, time: 60000, errors: ['time'] });
-
-        const userMessage = collectedMessage.first().content;
-
-        // Show the channel list
-        const channelList = message.guild.channels.cache.filter(ch => ch.type === ChannelType.GuildText);
-        const channelOptions = channelList.map(ch => ({
-            label: ch.name,
-            value: ch.id
-        }));
-
-        // Ask for the channel
-        await message.reply({
-            content: "What channel do you want me to send the message in?",
-            components: [
-                new ActionRowBuilder().addComponents(
-                    new StringSelectMenuBuilder()
-                        .setCustomId("channel_select")
-                        .setPlaceholder("Select a channel")
-                        .addOptions(channelOptions)
-                )
-            ],
-            ephemeral: true
-        });
-
-        const selectedChannel = await message.channel.awaitMessageComponent({ filter, time: 60000, errors: ['time'] });
-
-        // Send the message to the selected channel
-        const targetChannel = message.guild.channels.cache.get(selectedChannel.values[0]);
-        if (targetChannel) {
-            targetChannel.send(userMessage);
-        }
-
-        selectedChannel.update({ content: `Message sent to ${targetChannel}`, ephemeral: true });
     }
 });
 
