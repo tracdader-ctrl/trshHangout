@@ -22,7 +22,7 @@ const ticketSteps = new Map();
 const TICKET_CATEGORY_NAME = "Purchase";
 
 /* ================= TRANSCRIPTS ================= */
-const transcriptStore = new Map(); 
+const transcriptStore = new Map();
 // key: ticketChannelId (string) -> { ownerId, ownerTag, transcriptText, createdAt }
 
 /* ================= COLORS ================= */
@@ -33,7 +33,7 @@ const COLOR_GREEN = 0x57F287;
 /* ================= READY ================= */
 client.once("ready", () => {
     console.log("✅ Ticket bot online!");
-    
+
     // Register the /ticketpanel command
     const guild = client.guilds.cache.get('YOUR_GUILD_ID');  // Replace with your server's ID
     if (!guild) return;
@@ -620,6 +620,49 @@ await interaction.channel.send({
             content: "❌ Cancelled.", 
             components: [] 
         }); 
+    }
+});
+
+// New command for handling message sending with permissions
+client.on("messageCreate", async message => {
+    if (message.author.bot) return;
+
+    if (message.content.toLowerCase() === "!trshhangoutmessage1") {
+        // Check for CommandPerm role
+        if (!message.member.roles.cache.some(role => role.name === "CommandPerm")) {
+            return message.author.send("You do not have permission to use this command.");
+        }
+
+        // Ask for message
+        await message.reply("What message do you want me to send?");
+        
+        const filter = response => response.author.id === message.author.id;
+        const collectedMessage = await message.channel.awaitMessages({
+            filter,
+            max: 1,
+            time: 60000,
+            errors: ["time"]
+        });
+
+        const userMessage = collectedMessage.first().content;
+
+        await message.reply("What channel do you want me to send it in?");
+        const collectedChannel = await message.channel.awaitMessages({
+            filter,
+            max: 1,
+            time: 60000,
+            errors: ["time"]
+        });
+
+        const channelName = collectedChannel.first().content;
+        const channel = message.guild.channels.cache.find(ch => ch.name === channelName);
+
+        if (!channel) {
+            return message.reply("Invalid channel. Please try again.");
+        }
+
+        await channel.send(userMessage);
+        message.reply("Message sent!");
     }
 });
 
